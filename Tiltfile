@@ -1,5 +1,8 @@
 # -*- mode: Python -*-
 
+envsubst_cmd = "./hack/tools/bin/envsubst"
+kubectl_cmd = "/usr/bin/kubectl"
+
 load("ext://uibutton", "cmd_button", "text_input")
 
 # set defaults
@@ -7,6 +10,8 @@ version_settings(True, ">=0.22.2")
 
 settings = {
     "deploy_cert_manager": True,
+    "kubernetes_version": "v1.22.6",
+    "namespace": "default",
     "enable_providers": ["docker"],
     "kind_cluster_name": os.getenv("CAPI_KIND_CLUSTER_NAME", "capi-test"),
     "debug": {},
@@ -387,6 +392,77 @@ def prepare_all():
     )
     local(cmd, env = settings.get("kustomize_substitutions", {}))
 
+# create flavor resources from cluster-template files in the templates directory
+def flavors():
+    substitutions = settings.get("kustomize_substitutions", {})
+
+    template_list = [item for item in listdir("./test/infrastructure/docker/templates")]
+    template_list = [template for template in template_list if os.path.basename(template).endswith("yaml")]
+
+    for template in template_list:
+        deploy_worker_templates(template, substitutions)
+
+    local_resource(
+        name = "delete-all-workload-clusters",
+        cmd = kubectl_cmd + " delete clusters --all --wait=false",
+        auto_init = False,
+        trigger_mode = TRIGGER_MODE_MANUAL,
+        labels = ["flavors"],
+    )
+
+def deploy_worker_templates(template, substitutions):
+    # validate template exists
+    if not os.path.exists(template):
+        fail(template + " not found")
+
+    yaml = str(read_file(template))
+    flavor = os.path.basename(template).replace("cluster-template-", "").replace(".yaml", "")
+
+    # for the base cluster-template, flavor is "default"
+    flavor = os.path.basename(flavor).replace("cluster-template", "default")
+
+    # ssh replacements
+    for substitution in substitutions:
+        value = substitutions[substitution]
+        yaml = yaml.replace("${" + substitution + "}", value)
+
+    # if metadata defined for worker-templates in tilt_settings
+    if "worker-templates" in settings:
+        # first priority replacements defined per template
+        if "flavors" in settings.get("worker-templates", {}):
+            substitutions = settings.get("worker-templates").get("flavors").get(flavor, {})
+            for substitution in substitutions:
+                value = substitutions[substitution]
+                yaml = yaml.replace("${" + substitution + "}", value)
+
+        # second priority replacements defined common to templates
+        if "metadata" in settings.get("worker-templates", {}):
+            substitutions = settings.get("worker-templates").get("metadata", {})
+            for substitution in substitutions:
+                value = substitutions[substitution]
+                yaml = yaml.replace("${" + substitution + "}", value)
+
+    # programmatically define any remaining vars
+    substitutions = {
+        "NAMESPACE": settings.get("namespace"),
+        "KUBERNETES_VERSION": settings.get("kubernetes_version"),
+        "CONTROL_PLANE_MACHINE_COUNT": "1",
+        "WORKER_MACHINE_COUNT": "2",
+    }
+
+    for substitution in substitutions:
+        value = substitutions[substitution]
+        yaml = yaml.replace("${" + substitution + "}", value)
+
+    yaml = yaml.replace('"', '\\"')  # add escape character to double quotes in yaml
+    local_resource(
+        name = os.path.basename(flavor),
+        cmd = "RANDOM=$(bash -c 'echo $RANDOM'); CLUSTER_NAME=" + flavor.replace("windows", "win") + "-$RANDOM; echo \"" + yaml + "\" > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster \'$CLUSTER_NAME\' created, don't forget to delete\"",
+        auto_init = False,
+        trigger_mode = TRIGGER_MODE_MANUAL,
+        labels = ["flavors"],
+    )
+
 ##############################
 # Actual work happens here
 ##############################
@@ -402,3 +478,5 @@ deploy_provider_crds()
 deploy_observability()
 
 enable_providers()
+
+flavors()
