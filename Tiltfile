@@ -3,7 +3,7 @@
 envsubst_cmd = "./hack/tools/bin/envsubst"
 kubectl_cmd = "/usr/bin/kubectl"
 
-load("ext://uibutton", "cmd_button", "text_input")
+load("ext://uibutton", "cmd_button", "text_input", "location")
 
 # set defaults
 version_settings(True, ">=0.22.2")
@@ -410,10 +410,15 @@ def deploy_worker_templates(template, substitutions):
         fail(template + " not found")
 
     yaml = str(read_file(template))
-    flavor = os.path.basename(template).replace("cluster-template-", "").replace(".yaml", "")
 
-    # for the base cluster-template, flavor is "default"
-    flavor = os.path.basename(flavor).replace("cluster-template", "default")
+    basename = os.path.basename(template)
+    if basename.startswith("clusterclass-"): #TODO: find a way to detect if this is a clusterclass template
+        # TODO: implement behavior/UX for clusterclass
+        flavor = basename.replace("clusterclass-", "").replace(".yaml", "")
+    else:
+        flavor = basename.replace("cluster-template-", "").replace(".yaml", "")
+        # for the base cluster-template, flavor is "default"
+        flavor = os.path.basename(flavor).replace("cluster-template", "default")
 
     # TODO: document these substitutions that are used in the default templates
     # NAMESPACE
@@ -434,7 +439,13 @@ def deploy_worker_templates(template, substitutions):
         trigger_mode = TRIGGER_MODE_MANUAL,
         labels = ["flavors"],
     )
-
+    
+    cmd_button(os.path.basename(flavor) + ":delete",
+        argv=["sh", "-c", 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^development-[[:digit:]]{1,5}"); echo "\nDeleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster'],
+        resource=os.path.basename(flavor),
+        icon_name="delete",
+        text="Delete clusters for `" + flavor + "`",
+    )
 ##############################
 # Actual work happens here
 ##############################
