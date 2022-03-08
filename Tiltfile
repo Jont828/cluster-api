@@ -411,6 +411,19 @@ def deploy_worker_templates(template, substitutions):
 
     yaml = str(read_file(template))
 
+    # TODO: document these substitutions that are used in the default templates
+    # NAMESPACE
+    # KUBERNETES_VERSION
+    # CONTROL_PLANE_MACHINE_COUNT
+    # WORKER_MACHINE_COUNT
+
+    # ssh replacements
+    for substitution in substitutions:
+        value = substitutions[substitution]
+        yaml = yaml.replace("${" + substitution + "}", value)
+
+    yaml = yaml.replace('"', '\\"')  # add escape character to double quotes in yaml
+
     basename = os.path.basename(template)
     if basename.startswith("clusterclass-"): #TODO: find a way to detect if this is a clusterclass template
         # TODO: implement behavior/UX for clusterclass
@@ -420,31 +433,35 @@ def deploy_worker_templates(template, substitutions):
         # for the base cluster-template, flavor is "default"
         flavor = os.path.basename(flavor).replace("cluster-template", "default")
 
-    # TODO: document these substitutions that are used in the default templates
-    # NAMESPACE
-    # KUBERNETES_VERSION
-    # CONTROL_PLANE_MACHINE_COUNT
-    # WORKER_MACHINE_COUNT
-    
-    # ssh replacements
-    for substitution in substitutions:
-        value = substitutions[substitution]
-        yaml = yaml.replace("${" + substitution + "}", value)
-
-    yaml = yaml.replace('"', '\\"')  # add escape character to double quotes in yaml
+    apply_cluster_template_cmd = "CLUSTER_NAME=" + flavor + "-$RANDOM; echo \"" + yaml + "\" > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster \'$CLUSTER_NAME\' created, don't forget to delete\""
+    delete_clusters_cmd = 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^development-[[:digit:]]{1,5}"); echo "\nDeleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster'
     local_resource(
         name = os.path.basename(flavor),
-        cmd = "RANDOM=$(bash -c 'echo $RANDOM'); CLUSTER_NAME=" + flavor + "-$RANDOM; echo \"" + yaml + "\" > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster \'$CLUSTER_NAME\' created, don't forget to delete\"",
+        cmd = apply_cluster_template_cmd,
         auto_init = False,
         trigger_mode = TRIGGER_MODE_MANUAL,
         labels = ["flavors"],
     )
     
-    cmd_button(os.path.basename(flavor) + ":delete",
-        argv=["sh", "-c", 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^development-[[:digit:]]{1,5}"); echo "\nDeleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster'],
+    cmd_button(os.path.basename(flavor) + ":apply",
+        argv=["sh", "-c", apply_cluster_template_cmd],
         resource=os.path.basename(flavor),
-        icon_name="delete",
-        text="Delete clusters for `" + flavor + "`",
+        icon_name="add_box",
+        text="Create flavor cluster",
+    )
+
+    cmd_button(os.path.basename(flavor) + ":delete",
+        argv=["sh", "-c", delete_clusters_cmd],
+        resource=os.path.basename(flavor),
+        icon_name="delete_forever",
+        text="Delete flavor clusters",
+    )
+
+    cmd_button(os.path.basename(flavor) + ":delete-all",
+        argv=["sh", "-c", delete_clusters_cmd],
+        resource=os.path.basename(flavor),
+        icon_name="delete_sweep",
+        text="Delete cluster for all flavors",
     )
 ##############################
 # Actual work happens here
