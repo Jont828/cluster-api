@@ -472,7 +472,7 @@ def deploy_clusterclass_template(flavor, template_name, yaml, yaml_stream):
 def deploy_flavor_template(flavor, yaml):
     apply_cluster_template_cmd = "CLUSTER_NAME=" + flavor + "-$RANDOM; echo \"" + yaml + "\" > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster '$CLUSTER_NAME' created, don't forget to delete\n\""
 
-    delete_clusters_cmd = 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^' + flavor + '-[[:digit:]]{1,5}"); if [ -z "$DELETED" ]; then echo "Nothing to delete for flavor ' + flavor + '"; else echo "Deleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster; fi; echo "\n"'
+    delete_clusters_cmd = 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^' + flavor + '-[[:digit:]]{1,5}$"); if [ -z "$DELETED" ]; then echo "Nothing to delete for flavor ' + flavor + '"; else echo "Deleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster; fi; echo "\n"'
 
     local_resource(
         name = flavor,
@@ -493,14 +493,14 @@ def deploy_flavor_template(flavor, yaml):
         argv=["sh", "-c", delete_clusters_cmd],
         resource=flavor,
         icon_name="delete_forever",
-        text="Delete flavor clusters",
+        text="Delete `" + flavor + "` clusters",
     )
 
     cmd_button(flavor + ":delete-all",
         argv=["sh", "-c", kubectl_cmd + " delete clusters --all --wait=false"],
         resource=flavor,
         icon_name="delete_sweep",
-        text="Delete all clusters",
+        text="Delete all flavor clusters",
     )
 
     
