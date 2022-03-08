@@ -1,7 +1,7 @@
 # -*- mode: Python -*-
 
 envsubst_cmd = "./hack/tools/bin/envsubst"
-kubectl_cmd = "/usr/bin/kubectl"
+kubectl_cmd = "./hack/tools/bin/kubectl"
 
 load("ext://uibutton", "cmd_button", "text_input", "location")
 
