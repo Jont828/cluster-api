@@ -2,6 +2,7 @@
 
 envsubst_cmd = "./hack/tools/bin/envsubst"
 kubectl_cmd = "./hack/tools/bin/kubectl"
+clusterctl_cmd = "clusterctl"
 
 load("ext://uibutton", "cmd_button", "text_input", "location")
 
@@ -414,10 +415,10 @@ def deploy_templates(template_name, substitutions):
     print(yaml_stream)
 
     # TODO: document these substitutions that are used in the default templates
-    # NAMESPACE
-    # KUBERNETES_VERSION
-    # CONTROL_PLANE_MACHINE_COUNT
-    # WORKER_MACHINE_COUNT
+    os.environ['NAMESPACE'] = substitutions.get('NAMESPACE', 'default')
+    os.environ['KUBERNETES_VERSION'] = substitutions.get('KUBERNETES_VERSION', 'v1.22.6')
+    os.environ['CONTROL_PLANE_MACHINE_COUNT'] = substitutions.get('CONTROL_PLANE_MACHINE_COUNT', '1')
+    os.environ['WORKER_MACHINE_COUNT'] = substitutions.get('WORKER_MACHINE_COUNT', '3')
 
     for substitution in substitutions:
         value = substitutions[substitution]
@@ -431,7 +432,7 @@ def deploy_templates(template_name, substitutions):
         deploy_clusterclass_template(flavor, template_name, yaml, yaml_stream)
     elif 'Cluster' in [ y['kind'] for y in yaml_stream ]:
         flavor = basename.replace("cluster-template-", "").replace(".yaml", "")
-        deploy_flavor_template(flavor, yaml)
+        deploy_flavor_template(flavor, yaml, template_name)
     #TODO: handle else case for unspecified template type, i.e. MachineDeployment
 
 def deploy_clusterclass_template(flavor, template_name, yaml, yaml_stream):
@@ -469,8 +470,8 @@ def deploy_clusterclass_template(flavor, template_name, yaml, yaml_stream):
 
     #TODO: add a button to delete clusters instantiated from the clusterclass
 
-def deploy_flavor_template(flavor, yaml):
-    apply_cluster_template_cmd = "CLUSTER_NAME=" + flavor + "-$RANDOM; echo \"" + yaml + "\" > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster '$CLUSTER_NAME' created, don't forget to delete\n\""
+def deploy_flavor_template(flavor, yaml, template_name):
+    apply_cluster_template_cmd = "CLUSTER_NAME=" + flavor + "-$RANDOM; " + clusterctl_cmd + " generate cluster $CLUSTER_NAME --from " + template_name + " > ./.tiltbuild/" + flavor + "; cat ./.tiltbuild/" + flavor + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"Cluster '$CLUSTER_NAME' created, don't forget to delete\n\""
 
     delete_clusters_cmd = 'DELETED=$(echo "$(bash -c "' + kubectl_cmd + ' get clusters --no-headers -o custom-columns=":metadata.name"")" | grep -E "^' + flavor + '-[[:digit:]]{1,5}$"); if [ -z "$DELETED" ]; then echo "Nothing to delete for flavor ' + flavor + '"; else echo "Deleting clusters:\n$DELETED\n"; echo $DELETED | xargs -L1 ' + kubectl_cmd + ' delete cluster; fi; echo "\n"'
 
