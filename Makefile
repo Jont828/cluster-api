@@ -46,9 +46,6 @@ export KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT ?= 60s
 # This option is for running docker manifest command
 export DOCKER_CLI_EXPERIMENTAL := enabled
 
-# curl retries
-CURL_RETRIES=3
-
 #
 # Directories.
 #
@@ -107,10 +104,6 @@ ENVSUBST_VER := v2.0.0-20210730161058-179042472c46
 ENVSUBST_BIN := envsubst
 ENVSUBST := $(abspath $(TOOLS_BIN_DIR)/$(ENVSUBST_BIN)-$(ENVSUBST_VER))
 ENVSUBST_PKG := github.com/drone/envsubst/v2/cmd/envsubst
-
-KUBECTL_VER := v1.22.4
-KUBECTL_BIN := kubectl
-KUBECTL := $(TOOLS_BIN_DIR)/$(KUBECTL_BIN)-$(KUBECTL_VER)
 
 GO_APIDIFF_VER := v0.1.0
 GO_APIDIFF_BIN := go-apidiff
@@ -839,9 +832,6 @@ $(GO_APIDIFF_BIN): $(GO_APIDIFF) ## Build a local copy of go-apidiff
 .PHONY: $(ENVSUBST_BIN)
 $(ENVSUBST_BIN): $(ENVSUBST) ## Build a local copy of envsubst.
 
-.PHONY: $(KUBECTL_BIN)
-$(KUBECTL_BIN): $(KUBECTL)
-
 .PHONY: $(KUSTOMIZE_BIN)
 $(KUSTOMIZE_BIN): $(KUSTOMIZE) ## Build a local copy of kustomize.
 
@@ -886,13 +876,6 @@ $(GO_APIDIFF): # Build go-apidiff from tools folder.
 
 $(ENVSUBST): # Build gotestsum from tools folder.
 	GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(ENVSUBST_PKG) $(ENVSUBST_BIN) $(ENVSUBST_VER)
-
-$(KUBECTL): ## Build kubectl from tools folder.
-	mkdir -p $(TOOLS_BIN_DIR)
-	rm -f "$(TOOLS_BIN_DIR)/$(KUBECTL_BIN)*"
-	curl --retry $(CURL_RETRIES) -fsL https://storage.googleapis.com/kubernetes-release/release/$(KUBECTL_VER)/bin/$(shell go env GOOS)/$(ARCH)/kubectl -o $(KUBECTL)
-	ln -sf $(KUBECTL) $(TOOLS_BIN_DIR)/$(KUBECTL_BIN)
-	chmod +x $(KUBECTL) $(TOOLS_BIN_DIR)/$(KUBECTL_BIN)
 
 $(KUSTOMIZE): # Build kustomize from tools folder.
 	CGO_ENABLED=0 GOBIN=$(TOOLS_BIN_DIR) $(GO_INSTALL) $(KUSTOMIZE_PKG) $(KUSTOMIZE_BIN) $(KUSTOMIZE_VER)

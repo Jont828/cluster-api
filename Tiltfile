@@ -395,8 +395,9 @@ def prepare_all():
 def flavors():
     substitutions = settings.get("kustomize_substitutions", {})
 
-    # TODO: should we set `./test/infrastructure/docker/templates`as the default?
-    flavor_dirs = settings.get("flavor_dirs", {})
+    flavor_dirs = settings.get("flavor_dirs", {
+        "docker": ["./test/infrastructure/docker/templates"],
+    })
 
     for provider, provider_dirs in flavor_dirs.items():
         for flavor_dir in provider_dirs:
