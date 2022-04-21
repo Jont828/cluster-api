@@ -412,8 +412,6 @@ def deploy_templates(template_path, provider, substitutions):
     if not os.path.exists(template_path):
         fail(template_path + " not found")
 
-    yaml = str(read_file(template_path))
-    yaml_stream = read_yaml_stream(template_path)
 
     # TODO: document these substitutions that are used in the default templates
     os.environ['NAMESPACE'] = substitutions.get('NAMESPACE', 'default')
@@ -423,22 +421,16 @@ def deploy_templates(template_path, provider, substitutions):
 
 
     basename = os.path.basename(template_path)
-    if 'ClusterClass' in [ y['kind'] for y in yaml_stream ]:
-        flavor = basename.replace("clusterclass-", "").replace(".yaml", "")
-        deploy_clusterclass_template(flavor, provider, template_path, yaml_stream)
-    elif 'Cluster' in [ y['kind'] for y in yaml_stream ]:
-        flavor = basename.replace("cluster-template-", "").replace(".yaml", "")
-        deploy_flavor_template(flavor, provider, template_path)
+    if basename.endswith(".yaml"):
+        if basename.startswith("clusterclass-"):
+            flavor = basename.replace("clusterclass-", "").replace(".yaml", "")
+            deploy_clusterclass_template(flavor, provider, template_path)
+        elif basename.startswith("cluster-template-"):
+            flavor = basename.replace("cluster-template-", "").replace(".yaml", "")
+            deploy_flavor_template(flavor, provider, template_path)
 
-def deploy_clusterclass_template(flavor, provider, template_path, yaml_stream):
-    apply_clusterclass_cmd = "cat " + template_path + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo "
-    clusterclass = [ y for y in yaml_stream if y['kind'] == 'ClusterClass' ][0]
-    if 'metadata' in clusterclass and 'name' in clusterclass['metadata']:
-        clusterclass_name = clusterclass['metadata']['name']
-        apply_clusterclass_cmd += "\"ClusterClass \'" + clusterclass_name + "\' created, don't forget to delete\n\""
-    else:
-        apply_clusterclass_cmd += "\"ClusterClass created from\'" + template_path + "\', don't forget to delete\n\""
-
+def deploy_clusterclass_template(flavor, provider, template_path):
+    apply_clusterclass_cmd = "cat " + template_path + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"ClusterClass created from\'" + template_path + "\', don't forget to delete\n\""
     delete_clusterclass_cmd = kubectl_cmd + ' delete clusterclass ' + flavor + ' --ignore-not-found=true; echo "\n"'
 
     local_resource(
