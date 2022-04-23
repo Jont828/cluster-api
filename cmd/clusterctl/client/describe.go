@@ -57,6 +57,9 @@ type DescribeClusterOptions struct {
 	// Grouping groups machines objects in case the ready conditions
 	// have the same Status, Severity and Reason.
 	Grouping bool
+
+	// GroupingPreserveChildren...
+	GroupingPreserveChildren bool
 }
 
 // DescribeCluster returns the object tree representing the status of a Cluster API cluster.
@@ -89,12 +92,13 @@ func (c *clusterctlClient) DescribeCluster(options DescribeClusterOptions) (*tre
 
 	// Gets the object tree representing the status of a Cluster API cluster.
 	return tree.Discovery(context.TODO(), client, options.Namespace, options.ClusterName, tree.DiscoverOptions{
-		ShowOtherConditions:     options.ShowOtherConditions,
-		ShowMachineSets:         options.ShowMachineSets,
-		ShowClusterResourceSets: options.ShowClusterResourceSets,
-		ShowTemplates:           options.ShowTemplates,
-		AddTemplateVirtualNode:  options.AddTemplateVirtualNode,
-		Echo:                    options.Echo,
-		Grouping:                options.Grouping,
+		ShowOtherConditions:      options.ShowOtherConditions,
+		ShowMachineSets:          options.ShowMachineSets,
+		ShowClusterResourceSets:  options.ShowClusterResourceSets,
+		ShowTemplates:            options.ShowTemplates,
+		AddTemplateVirtualNode:   options.AddTemplateVirtualNode,
+		Echo:                     options.Echo,
+		Grouping:                 options.Grouping,
+		GroupingPreserveChildren: options.GroupingPreserveChildren,
 	})
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package tree
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -57,6 +58,9 @@ type ObjectTreeOptions struct {
 	// Grouping groups sibling object in case the ready conditions
 	// have the same Status, Severity and Reason
 	Grouping bool
+
+	// GroupingPreserveChildren...
+	GroupingPreserveChildren bool
 }
 
 // ObjectTree defines an object tree representing the status of a Cluster API cluster.
@@ -117,7 +121,6 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 
 	// Add the ObjectZOrderAnnotation to signal this to the presentation layer.
 	addAnnotation(obj, ObjectZOrderAnnotation, strconv.Itoa(addOpts.ZOrder))
-
 	// If it is requested that this object and its sibling should be grouped in case the ready condition
 	// has the same Status, Severity and Reason, process all the sibling nodes.
 	if IsGroupingObject(parent) {
@@ -145,6 +148,12 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 				// If so, upgrade it with the current object.
 				if s.GetObjectKind().GroupVersionKind().Kind == obj.GetObjectKind().GroupVersionKind().Kind+"Group" {
 					updateGroupNode(s, sReady, obj, objReady)
+
+					if od.options.GroupingPreserveChildren {
+						fmt.Printf("Adding %s/%s to %s/%s\n", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName(), s.GetObjectKind().GroupVersionKind().Kind, s.GetName())
+						od.addInner(s, obj)
+					}
+
 					return true, false
 				}
 			} else if s.GetObjectKind().GroupVersionKind().Kind != obj.GetObjectKind().GroupVersionKind().Kind {
@@ -160,9 +169,18 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 			addAnnotation(groupNode, ObjectZOrderAnnotation, strconv.Itoa(GetZOrder(obj)))
 
 			od.addInner(parent, groupNode)
-
 			// Remove the current sibling (now merged in the group).
-			od.remove(parent, s)
+			if od.options.GroupingPreserveChildren {
+				fmt.Printf("Adding %s/%s id=%s to %s/%s id=%s\n", s.GetObjectKind().GroupVersionKind().Kind, s.GetName(), s.GetUID(), groupNode.GetObjectKind().GroupVersionKind().Kind, groupNode.GetName(), groupNode.GetUID())
+				// od.addInner(groupNode, s)
+				od.moveParent(parent, groupNode, s)
+				fmt.Printf("Adding %s/%s id=%s to %s/%s id=%s\n", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName(), obj.GetUID(), groupNode.GetObjectKind().GroupVersionKind().Kind, groupNode.GetName(), groupNode.GetUID())
+
+				od.addInner(groupNode, obj)
+			} else {
+				od.remove(parent, s)
+			}
+
 			return true, false
 		}
 	}
@@ -177,6 +195,10 @@ func (od ObjectTree) Add(parent, obj client.Object, opts ...AddObjectOption) (ad
 	// Add the object to the object tree.
 	od.addInner(parent, obj)
 
+	if owners, err := json.MarshalIndent(od.ownership, "", "  "); err == nil {
+		fmt.Printf("Ownership map is:\n%s\n", string(owners))
+	}
+
 	return true, true
 }
 
@@ -186,6 +208,11 @@ func (od ObjectTree) remove(parent client.Object, s client.Object) {
 	}
 	delete(od.items, s.GetUID())
 	delete(od.ownership[parent.GetUID()], s.GetUID())
+}
+
+func (od ObjectTree) moveParent(oldParent client.Object, newParent client.Object, obj client.Object) {
+	delete(od.ownership[oldParent.GetUID()], obj.GetUID())
+	od.addInner(newParent, obj)
 }
 
 func (od ObjectTree) addInner(parent client.Object, obj client.Object) {

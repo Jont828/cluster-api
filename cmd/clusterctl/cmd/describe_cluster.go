@@ -148,16 +148,17 @@ func runDescribeCluster(name string) error {
 	}
 
 	tree, err := c.DescribeCluster(client.DescribeClusterOptions{
-		Kubeconfig:              client.Kubeconfig{Path: dc.kubeconfig, Context: dc.kubeconfigContext},
-		Namespace:               dc.namespace,
-		ClusterName:             name,
-		ShowOtherConditions:     dc.showOtherConditions,
-		ShowClusterResourceSets: dc.showClusterResourceSets,
-		ShowTemplates:           dc.showTemplates,
-		ShowMachineSets:         dc.showMachineSets,
-		AddTemplateVirtualNode:  true,
-		Echo:                    dc.echo || dc.disableNoEcho,
-		Grouping:                dc.grouping && !dc.disableGrouping,
+		Kubeconfig:               client.Kubeconfig{Path: dc.kubeconfig, Context: dc.kubeconfigContext},
+		Namespace:                dc.namespace,
+		ClusterName:              name,
+		ShowOtherConditions:      dc.showOtherConditions,
+		ShowClusterResourceSets:  dc.showClusterResourceSets,
+		ShowTemplates:            dc.showTemplates,
+		ShowMachineSets:          dc.showMachineSets,
+		AddTemplateVirtualNode:   true,
+		Echo:                     dc.echo || dc.disableNoEcho,
+		Grouping:                 dc.grouping && !dc.disableGrouping,
+		GroupingPreserveChildren: true,
 	})
 	if err != nil {
 		return err

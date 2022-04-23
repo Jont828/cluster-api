@@ -18,6 +18,7 @@ package tree
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,6 +56,9 @@ type DiscoverOptions struct {
 	// Grouping groups machine objects in case the ready conditions
 	// have the same Status, Severity and Reason.
 	Grouping bool
+
+	// GroupingPreserveChildren...
+	GroupingPreserveChildren bool
 }
 
 func (d DiscoverOptions) toObjectTreeOptions() ObjectTreeOptions {
@@ -104,10 +108,13 @@ func Discovery(ctx context.Context, c client.Client, namespace, name string, opt
 	}
 	machineMap := map[string]bool{}
 	addMachineFunc := func(parent client.Object, m *clusterv1.Machine) {
+		fmt.Printf("Adding machine %s id=%s\n", m.Name, m.GetUID())
 		_, visible := tree.Add(parent, m)
 		machineMap[m.Name] = true
 
-		if visible {
+		// if visible {
+		if visible || options.GroupingPreserveChildren {
+			// fmt.Println("Adding machineinfra and bootstrap config")
 			if machineInfra, err := external.Get(ctx, c, &m.Spec.InfrastructureRef, cluster.Namespace); err == nil {
 				tree.Add(m, machineInfra, ObjectMetaName("MachineInfrastructure"), NoEcho(true))
 			}
