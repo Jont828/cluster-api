@@ -4,7 +4,7 @@ envsubst_cmd = "./hack/tools/bin/envsubst"
 clusterctl_cmd = "./bin/clusterctl"
 kubectl_cmd = "kubectl"
 
-load("ext://uibutton", "cmd_button", "text_input", "location")
+load("ext://uibutton", "cmd_button", "location", "text_input")
 
 # set defaults
 version_settings(True, ">=0.22.2")
@@ -412,11 +412,10 @@ def deploy_templates(template_path, provider, substitutions):
     if not os.path.exists(template_path):
         fail(template_path + " not found")
 
-    os.environ['NAMESPACE'] = substitutions.get('NAMESPACE', 'default')
-    os.environ['KUBERNETES_VERSION'] = substitutions.get('KUBERNETES_VERSION', 'v1.22.6')
-    os.environ['CONTROL_PLANE_MACHINE_COUNT'] = substitutions.get('CONTROL_PLANE_MACHINE_COUNT', '1')
-    os.environ['WORKER_MACHINE_COUNT'] = substitutions.get('WORKER_MACHINE_COUNT', '3')
-
+    os.environ["NAMESPACE"] = substitutions.get("NAMESPACE", "default")
+    os.environ["KUBERNETES_VERSION"] = substitutions.get("KUBERNETES_VERSION", "v1.22.6")
+    os.environ["CONTROL_PLANE_MACHINE_COUNT"] = substitutions.get("CONTROL_PLANE_MACHINE_COUNT", "1")
+    os.environ["WORKER_MACHINE_COUNT"] = substitutions.get("WORKER_MACHINE_COUNT", "3")
 
     basename = os.path.basename(template_path)
     if basename.endswith(".yaml"):
@@ -429,7 +428,7 @@ def deploy_templates(template_path, provider, substitutions):
 
 def deploy_clusterclass_template(flavor, provider, template_path):
     apply_clusterclass_cmd = "cat " + template_path + " | " + envsubst_cmd + " | " + kubectl_cmd + " apply -f - && echo \"ClusterClass created from\'" + template_path + "\', don't forget to delete\n\""
-    delete_clusterclass_cmd = kubectl_cmd + ' delete clusterclass ' + flavor + ' --ignore-not-found=true; echo "\n"'
+    delete_clusterclass_cmd = kubectl_cmd + " delete clusterclass " + flavor + ' --ignore-not-found=true; echo "\n"'
 
     local_resource(
         name = flavor,
@@ -438,19 +437,21 @@ def deploy_clusterclass_template(flavor, provider, template_path):
         trigger_mode = TRIGGER_MODE_MANUAL,
         labels = [provider + "-clusterclasses"],
     )
-    
-    cmd_button(flavor + ":apply",
-        argv=["sh", "-c", apply_clusterclass_cmd],
-        resource=flavor,
-        icon_name="note_add",
-        text="Apply ClusterClass",
+
+    cmd_button(
+        flavor + ":apply",
+        argv = ["sh", "-c", apply_clusterclass_cmd],
+        resource = flavor,
+        icon_name = "note_add",
+        text = "Apply ClusterClass",
     )
 
-    cmd_button(flavor + ":delete",
-        argv=["sh", "-c", delete_clusterclass_cmd],
-        resource=flavor,
-        icon_name="delete_forever",
-        text="Delete ClusterClass",
+    cmd_button(
+        flavor + ":delete",
+        argv = ["sh", "-c", delete_clusterclass_cmd],
+        resource = flavor,
+        icon_name = "delete_forever",
+        text = "Delete ClusterClass",
     )
 
 def deploy_flavor_template(flavor, provider, template_path):
@@ -465,29 +466,31 @@ def deploy_flavor_template(flavor, provider, template_path):
         trigger_mode = TRIGGER_MODE_MANUAL,
         labels = [provider + "-flavors"],
     )
-    
-    cmd_button(flavor + ":apply",
-        argv=["sh", "-c", apply_cluster_template_cmd],
-        resource=flavor,
-        icon_name="add_box",
-        text="Create flavor cluster",
+
+    cmd_button(
+        flavor + ":apply",
+        argv = ["sh", "-c", apply_cluster_template_cmd],
+        resource = flavor,
+        icon_name = "add_box",
+        text = "Create flavor cluster",
     )
 
-    cmd_button(flavor + ":delete",
-        argv=["sh", "-c", delete_clusters_cmd],
-        resource=flavor,
-        icon_name="delete_forever",
-        text="Delete `" + flavor + "` clusters",
+    cmd_button(
+        flavor + ":delete",
+        argv = ["sh", "-c", delete_clusters_cmd],
+        resource = flavor,
+        icon_name = "delete_forever",
+        text = "Delete `" + flavor + "` clusters",
     )
 
-    cmd_button(flavor + ":delete-all",
-        argv=["sh", "-c", kubectl_cmd + " delete clusters --all --wait=false"],
-        resource=flavor,
-        icon_name="delete_sweep",
-        text="Delete all flavor clusters",
+    cmd_button(
+        flavor + ":delete-all",
+        argv = ["sh", "-c", kubectl_cmd + " delete clusters --all --wait=false"],
+        resource = flavor,
+        icon_name = "delete_sweep",
+        text = "Delete all flavor clusters",
     )
 
-    
 ##############################
 # Actual work happens here
 ##############################
