@@ -71,8 +71,31 @@ documentation](https://docs.tilt.dev/api.html#api.default_registry) for more det
 **enable_providers** (Array[]String, default=['docker']): A list of the providers to enable. See [available providers](#available-providers)
 for more details.
 
+**flavor_dirs** (Map{String: Array[]String}, default={"docker": [
+"./test/infrastructure/docker/templates"]}): A map of providers to directories containing flavor templates. An example of the field is given below. See [Deploying a workload cluster](#deploying-a-workload-cluster) for how this is used.
+
+```json
+"flavor_dirs": {
+    "docker": [
+        "./test/infrastructure/docker/templates",
+        "<other-template-dir>"
+    ],
+    "azure": [
+        "<azure-template-dir>"
+    ],
+    "aws": [
+        "<aws-template-dir>"
+    ],
+    "gcp": [
+        "<gcp-template-dir>"
+    ]
+}
+```
+
 **kustomize_substitutions** (Map{String: String}, default={}): An optional map of substitutions for `${}`-style placeholders in the
-provider's yaml. **Note**: When running E2E tests locally using an existing cluster managed by Tilt, the following substitutions are required for successful tests:
+provider's yaml. These substitutions are also used when deploying flavor templates. See [Deploying a workload cluster](#deploying-a-workload-cluster).
+
+**Note**: When running E2E tests locally using an existing cluster managed by Tilt, the following substitutions are required for successful tests:
 ```yaml
 kustomize_substitutions:
   CLUSTER_TOPOLOGY: "true"
@@ -258,7 +281,28 @@ create a cluster. There are [example worker cluster
 configs](https://github.com/kubernetes-sigs/cluster-api/tree/main/test/infrastructure/docker/examples) available.
 These can be customized for your specific needs.
 
-<aside class="note">
+### Deploying a workload cluster
+
+After your kind management cluster is up and running with Tilt, you can deploy a workload clusters in the Tilt web UI based off of YAML templates from specified directories. By default, templates are read from `./test/infrastructure/docker/templates`.
+
+These deployment resources are found in the Tilt web UI under the label grouping `<provider>-flavors` and `<provider>-clusterclasses` for each specified provider, i.e. `docker-flavors` and `docker-clusterclasses`. Note that deploying a workload cluster from Tilt UI is also termed as flavor cluster deployment.
+
+The `<provider>-flavors` category contains flavor templates, you can create a cluster by clicking "Create flavor cluster" or the clockwise arrow icon ⟳. Note that each time a flavor is deployed, it deploys a new workload cluster in addition to the existing ones. To delete clusteres based off of a flavor, click on "Delete \<flavor\> cluster," and click on "Delete all flavor clusters" to delete all workload clusters.
+
+The `<provider>-clusterclasses` category contains clusterclasses and you can create them by clicking on the "Create clusterclass" or the clockwise arrow icon ⟳ and delete them by clicking on "Delete clusterclass".
+
+Variables in a flavor template are substituted with values from `kustomize_substitutions` in `tilt-settings.json`. The default substitutions are:
+
+```json
+"kustomize_substitutions": {
+  "NAMESPACE": "default",
+  "KUBERNETES_VERSION": "v1.22.6",
+  "CONTROL_PLANE_MACHINE_COUNT": "1",
+  "WORKER_MACHINE_COUNT": "3",
+}
+```
+
+Lastly, flavor directories can be specified from the `flavor_directories` field in `tilt-settings.json`. See [tilt-settings fields](#tilt-settings-fields) for an example.
 
 <h1>Use of clusterctl</h1>
 

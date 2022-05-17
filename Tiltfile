@@ -412,8 +412,6 @@ def deploy_templates(template_path, provider, substitutions):
     if not os.path.exists(template_path):
         fail(template_path + " not found")
 
-
-    # TODO: document these substitutions that are used in the default templates
     os.environ['NAMESPACE'] = substitutions.get('NAMESPACE', 'default')
     os.environ['KUBERNETES_VERSION'] = substitutions.get('KUBERNETES_VERSION', 'v1.22.6')
     os.environ['CONTROL_PLANE_MACHINE_COUNT'] = substitutions.get('CONTROL_PLANE_MACHINE_COUNT', '1')
