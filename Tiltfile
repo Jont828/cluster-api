@@ -347,6 +347,24 @@ def deploy_observability():
         k8s_yaml(read_file("./.tiltbuild/yaml/prometheus.observability.yaml"), allow_duplicates = True)
         k8s_resource(workload = "prometheus-server", new_name = "prometheus", port_forwards = "9090", extra_pod_selectors = [{"app": "prometheus"}], labels = ["observability"])
 
+    # Always deploy for demo
+    internal_kubeconfig = str(local("kind get kubeconfig --name ${CAPI_KIND_CLUSTER_NAME:-capi-test} --internal"))
+    k8s_yaml(helm(
+        "./visualizer-demo/cluster-api-visualizer/chart",
+        name = "visualize-cluster",
+        namespace = "observability",
+        set = [
+            "kubeconfig=" + internal_kubeconfig,
+        ],
+    ))
+
+    k8s_resource(
+        workload = "capi-visualizer",
+        new_name = "visualize-cluster",
+        port_forwards = [port_forward(local_port = 8000, container_port = 8081, name = "View visualization")],
+        labels = ["observability"],
+    )
+
 def prepare_all():
     allow_k8s_arg = ""
     if settings.get("allowed_contexts"):
