@@ -18,6 +18,7 @@ package cluster
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -417,3 +418,126 @@ func (k *proxy) newClientSet() (*kubernetes.Clientset, error) {
 
 	return cs, nil
 }
+
+type inClusterProxy struct {
+	// kubeconfig         Kubeconfig
+	// timeout            time.Duration
+	// configLoadingRules *clientcmd.ClientConfigLoadingRules
+	// overrides               *ConfigOverrides
+	// inClusterConfigProvider func() (*rest.Config, error)
+}
+
+// GetConfig returns the config for a kubernetes client.
+func (k *inClusterProxy) GetConfig() (*rest.Config, error) {
+	// if k.kubeconfig.Path == "" {
+	// 	kubeconfig, err := rest.InClusterConfig()
+	// 	if err == nil {
+	// 		return kubeconfig, nil
+	// 	}
+	// }
+
+	restConfig, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create the in-cluster config")
+	}
+	restConfig.UserAgent = fmt.Sprintf("clusterctl/%s (%s)", version.Get().GitVersion, version.Get().Platform)
+
+	// Set QPS and Burst to a threshold that ensures the controller runtime client/client go doesn't generate throttling log messages
+	restConfig.QPS = 20
+	restConfig.Burst = 100
+
+	return restConfig, nil
+}
+
+// CurrentNamespace returns the namespace from the current context in the kubeconfig file.
+func (k *inClusterProxy) CurrentNamespace() (string, error) {
+	// This way assumes you've set the POD_NAMESPACE environment variable using the downward API.
+	// This check has to be done first for backwards compatibility with the way InClusterConfig was originally set up
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns, nil
+	}
+
+	// Fall back to the namespace associated with the service account token, if available
+	if data, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
+			return ns, nil
+		}
+	}
+
+	return "default", nil
+}
+
+// ValidateKubernetesVersion returns an error if management cluster version less than MinimumKubernetesVersion.
+func (k *inClusterProxy) ValidateKubernetesVersion() error {
+	config, err := k.GetConfig()
+	if err != nil {
+		return err
+	}
+
+	minVer := version.MinimumKubernetesVersion
+	if clusterTopologyFeatureGate, _ := strconv.ParseBool(os.Getenv("CLUSTER_TOPOLOGY")); clusterTopologyFeatureGate {
+		minVer = version.MinimumKubernetesVersionClusterTopology
+	}
+
+	return version.CheckKubernetesVersion(config, minVer)
+}
+
+// NewClient returns a new controller runtime Client object for working on the management cluster.
+func (k *inClusterProxy) NewClient() (client.Client, error) {
+	config, err := k.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	var c client.Client
+	// Nb. The operation is wrapped in a retry loop to make newClientSet more resilient to temporary connection problems.
+	connectBackoff := newConnectBackoff()
+	if err := retryWithExponentialBackoff(connectBackoff, func() error {
+		var err error
+		c, err = client.New(config, client.Options{Scheme: localScheme})
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "failed to connect to the management cluster")
+	}
+
+	return c, nil
+}
+
+// CheckClusterAvailable checks if a a cluster is available and reachable.
+func (k *inClusterProxy) CheckClusterAvailable() error {
+	// Check if the cluster is available by creating a client to the cluster.
+	// If creating the client times out and never established we assume that
+	// the cluster does not exist or is not reachable.
+	// For the purposes of clusterctl operations non-existent clusters and
+	// non-reachable clusters can be treated as the same.
+	config, err := k.GetConfig()
+	if err != nil {
+		return err
+	}
+
+	connectBackoff := newShortConnectBackoff()
+	if err := retryWithExponentialBackoff(connectBackoff, func() error {
+		_, err := client.New(config, client.Options{Scheme: localScheme})
+		return err
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ListResources lists namespaced and cluster-wide resources for a component matching the labels. Namespaced resources are only listed
+// in the given namespaces.
+// Please note that we are not returning resources for the component's CRD (e.g. we are not returning
+// Certificates for cert-manager, Clusters for CAPI, AWSCluster for CAPA and so on).
+// This is done to avoid errors when listing resources of providers which have already been deleted/scaled down to 0 replicas/with
+// malfunctioning webhooks.
+// ListResources(labels map[string]string, namespaces ...string) ([]unstructured.Unstructured, error)
+
+// GetContexts returns the list of contexts in kubeconfig which begin with prefix.
+// GetContexts(prefix string) ([]string, error)
+
+// GetResourceNames returns the list of resource names which begin with prefix.
+// GetResourceNames(groupVersion, kind string, options []client.ListOption, prefix string) ([]string, error)
