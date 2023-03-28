@@ -86,7 +86,7 @@ func init() {
 		"IPAM providers and versions (e.g. infoblox:v0.0.1) to upgrade to. This flag can be used as alternative to --contract.")
 	upgradeApplyCmd.Flags().StringSliceVar(&ua.runtimeExtensionProviders, "runtime-extension", nil,
 		"Runtime extension providers and versions (e.g. test:v0.0.1) to upgrade to. This flag can be used as alternative to --contract.")
-	upgradeApplyCmd.Flags().StringSliceVar(&ua.addonProviders, "runtime-extension", nil,
+	upgradeApplyCmd.Flags().StringSliceVar(&ua.addonProviders, "add-on", nil,
 		"Add-on providers and versions (e.g. helm:v0.1.0) to upgrade to. This flag can be used as alternative to --contract.")
 	upgradeApplyCmd.Flags().BoolVar(&ua.waitProviders, "wait-providers", false,
 		"Wait for providers to be upgraded.")
