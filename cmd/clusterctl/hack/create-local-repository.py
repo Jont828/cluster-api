@@ -80,6 +80,12 @@ providers = {
           'type': 'RuntimeExtensionProvider',
           'configFolder': 'test/extension/config/default',
       },
+      'add-on-test': {
+          'componentsFile': 'add-on-components.yaml',
+          'nextVersion': '...',
+          'type': 'AddonProvider',
+          'configFolder': '...',
+      },
 }
 
 def load_settings():
@@ -208,6 +214,8 @@ def splitNameAndType(provider):
         return provider[len('ipam-'):], 'IPAMProvider'
     if provider.startswith('runtime-extension-'):
         return provider[len('runtime-extension-'):], 'RuntimeExtensionProvider'
+    if provider.startswith('add-on-'):
+        return provider[len('add-on-'):], 'AddonProvider'
     return None, None
 
 def CoreProviderFlag():
@@ -228,6 +236,9 @@ def IPAMProviderFlag():
 def RuntimeExtensionProviderFlag():
     return '--runtime-extension'
 
+def AddonProviderFlag():
+    return '--add-on'
+
 def type_to_flag(type):
     switcher = {
         'CoreProvider': CoreProviderFlag,
@@ -235,7 +246,8 @@ def type_to_flag(type):
         'ControlPlaneProvider': ControlPlaneProviderFlag,
         'InfrastructureProvider': InfrastructureProviderFlag,
         'IPAMProvider': IPAMProviderFlag,
-        'RuntimeExtensionProvider': RuntimeExtensionProviderFlag
+        'RuntimeExtensionProvider': RuntimeExtensionProviderFlag,
+        'AddonProvider': AddonProviderFlag
     }
     func = switcher.get(type, lambda: 'Invalid type')
     return func()
