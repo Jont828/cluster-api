@@ -43,6 +43,7 @@ type InitManagementClusterAndWatchControllerLogsInput struct {
 	InfrastructureProviders   []string
 	IPAMProviders             []string
 	RuntimeExtensionProviders []string
+	AddonProviders            []string
 	LogFolder                 string
 	DisableMetricsCollection  bool
 	ClusterctlBinaryPath      string
@@ -85,6 +86,7 @@ func InitManagementClusterAndWatchControllerLogs(ctx context.Context, input Init
 			InfrastructureProviders:   input.InfrastructureProviders,
 			IPAMProviders:             input.IPAMProviders,
 			RuntimeExtensionProviders: input.RuntimeExtensionProviders,
+			AddonProviders:            input.AddonProviders,
 			// setup clusterctl logs folder
 			LogFolder: input.LogFolder,
 		}

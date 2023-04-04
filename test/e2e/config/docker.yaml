@@ -19,6 +19,8 @@ images:
   loadBehavior: tryLoad
 - name: gcr.io/k8s-staging-cluster-api/test-extension-{ARCH}:dev
   loadBehavior: tryLoad
+- name: gcr.io/k8s-staging-cluster-api-helm/cluster-api-helm-controller:v0.1.0-alpha.3-rc.0
+  loadBehavior: tryLoad
 - name: quay.io/jetstack/cert-manager-cainjector:v1.11.0
   loadBehavior: tryLoad
 - name: quay.io/jetstack/cert-manager-webhook:v1.11.0
@@ -285,6 +287,19 @@ providers:
       value: ../../../test/extension/config/default
       files:
       - sourcePath: "../data/shared/main/metadata.yaml"
+
+- name: helm
+  type: AddonProvider
+  versions:
+  - name: latest
+    value: https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm/releases/download/latest/add-on-components.yaml
+    type: url
+    contract: v1beta1
+    files:
+    - sourcePath: "../data/shared/v1beta1/metadata.yaml"
+    replacements:
+    - old: "imagePullPolicy: Always"
+      new: "imagePullPolicy: IfNotPresent"
 
 variables:
   # Default variables for the e2e test; those values could be overridden via env variables, thus
