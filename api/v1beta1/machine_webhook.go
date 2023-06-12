@@ -58,7 +58,10 @@ func (m *Machine) Default() {
 	}
 
 	if m.Spec.InfrastructureRef.Namespace == "" {
-		m.Spec.InfrastructureRef.Namespace = m.Namespace
+		// Don't autofill namespace for MachinePool Machines since the infraRef will be populated by the MachinePool controller.
+		if !isMachinePoolMachine(m) {
+			m.Spec.InfrastructureRef.Namespace = m.Namespace
+		}
 	}
 
 	if m.Spec.Version != nil && !strings.HasPrefix(*m.Spec.Version, "v") {
@@ -94,13 +97,16 @@ func (m *Machine) validate(old *Machine) error {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	if m.Spec.Bootstrap.ConfigRef == nil && m.Spec.Bootstrap.DataSecretName == nil {
-		allErrs = append(
-			allErrs,
-			field.Required(
-				specPath.Child("bootstrap", "data"),
-				"expected either spec.bootstrap.dataSecretName or spec.bootstrap.configRef to be populated",
-			),
-		)
+		// MachinePool Machines don't have a bootstrap configRef, so don't require it. The bootstrap config is instead owned by the MachinePool.
+		if !isMachinePoolMachine(m) {
+			allErrs = append(
+				allErrs,
+				field.Required(
+					specPath.Child("bootstrap", "data"),
+					"expected either spec.bootstrap.dataSecretName or spec.bootstrap.configRef to be populated",
+				),
+			)
+		}
 	}
 
 	if m.Spec.Bootstrap.ConfigRef != nil && m.Spec.Bootstrap.ConfigRef.Namespace != m.Namespace {
@@ -114,15 +120,18 @@ func (m *Machine) validate(old *Machine) error {
 		)
 	}
 
-	if m.Spec.InfrastructureRef.Namespace != m.Namespace {
-		allErrs = append(
-			allErrs,
-			field.Invalid(
-				specPath.Child("infrastructureRef", "namespace"),
-				m.Spec.InfrastructureRef.Namespace,
-				"must match metadata.namespace",
-			),
-		)
+	// InfraRef can be empty for MachinePool Machines so skip the check in that case.
+	if !isMachinePoolMachine(m) {
+		if m.Spec.InfrastructureRef.Namespace != m.Namespace {
+			allErrs = append(
+				allErrs,
+				field.Invalid(
+					specPath.Child("infrastructureRef", "namespace"),
+					m.Spec.InfrastructureRef.Namespace,
+					"must match metadata.namespace",
+				),
+			)
+		}
 	}
 
 	if old != nil && old.Spec.ClusterName != m.Spec.ClusterName {
@@ -142,4 +151,18 @@ func (m *Machine) validate(old *Machine) error {
 		return nil
 	}
 	return apierrors.NewInvalid(GroupVersion.WithKind("Machine").GroupKind(), m.Name, allErrs)
+}
+
+func isMachinePoolMachine(m *Machine) bool {
+	if m.OwnerReferences == nil {
+		return false
+	}
+
+	for _, owner := range m.OwnerReferences {
+		if owner.Kind == "MachinePool" {
+			return true
+		}
+	}
+
+	return false
 }
