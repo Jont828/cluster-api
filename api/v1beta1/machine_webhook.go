@@ -58,10 +58,7 @@ func (m *Machine) Default() {
 	}
 
 	if m.Spec.InfrastructureRef.Namespace == "" {
-		// Don't autofill namespace for MachinePool Machines since the infraRef will be populated by the MachinePool controller.
-		if !isMachinePoolMachine(m) {
-			m.Spec.InfrastructureRef.Namespace = m.Namespace
-		}
+		m.Spec.InfrastructureRef.Namespace = m.Namespace
 	}
 
 	if m.Spec.Version != nil && !strings.HasPrefix(*m.Spec.Version, "v") {
@@ -120,18 +117,15 @@ func (m *Machine) validate(old *Machine) error {
 		)
 	}
 
-	// InfraRef can be empty for MachinePool Machines so skip the check in that case.
-	if !isMachinePoolMachine(m) {
-		if m.Spec.InfrastructureRef.Namespace != m.Namespace {
-			allErrs = append(
-				allErrs,
-				field.Invalid(
-					specPath.Child("infrastructureRef", "namespace"),
-					m.Spec.InfrastructureRef.Namespace,
-					"must match metadata.namespace",
-				),
-			)
-		}
+	if m.Spec.InfrastructureRef.Namespace != m.Namespace {
+		allErrs = append(
+			allErrs,
+			field.Invalid(
+				specPath.Child("infrastructureRef", "namespace"),
+				m.Spec.InfrastructureRef.Namespace,
+				"must match metadata.namespace",
+			),
+		)
 	}
 
 	if old != nil && old.Spec.ClusterName != m.Spec.ClusterName {

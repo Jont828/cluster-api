@@ -278,7 +278,7 @@ func (r *MachinePoolReconciler) reconcileInfrastructure(ctx context.Context, clu
 		conditions.WithFallbackValue(ready, clusterv1.WaitingForInfrastructureFallbackReason, clusterv1.ConditionSeverityInfo, ""),
 	)
 
-	if err := r.reconcileMachinePoolMachines(ctx, mp, infraConfig); err != nil {
+	if err := r.reconcileMachines(ctx, mp, infraConfig); err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to reconcile MachinePool machines for MachinePool `%s`", mp.Name)
 	}
 
@@ -316,8 +316,14 @@ func (r *MachinePoolReconciler) reconcileInfrastructure(ctx context.Context, clu
 	return ctrl.Result{}, nil
 }
 
-// reconcileMachinePoolMachines reconciles MachinePool Machines associated with a MachinePool.
-func (r *MachinePoolReconciler) reconcileMachinePoolMachines(ctx context.Context, mp *expv1.MachinePool, infraMachinePool *unstructured.Unstructured) error {
+// reconcileMachines reconciles Machines associated with a MachinePool.
+//
+// Note: In the case of MachinePools the machines are created in order to surface in CAPI what exists in the
+// infrastructure while instead on MachineDeployments, machines are created in CAPI first and then the
+// infrastructure is created accordingly.
+// Note: When supported by the cloud provider implementation of the MachinePool, machines will provide a means to interact
+// with the corresponding infrastructure (e.g. delete a specific machine in case MachineHealthCheck detects it is unhealthy)
+func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1.MachinePool, infraMachinePool *unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	var noKind bool
@@ -348,7 +354,7 @@ func (r *MachinePoolReconciler) reconcileMachinePoolMachines(ctx context.Context
 
 	// If proper MachinePool Machines aren't supported by the InfraMachinePool, do not create any.
 	if noKind && noSelector {
-		log.Info("MachinePool Machines not supported, no infraMachineKind or infraMachineSelector found")
+		log.V(2).Info("MachinePool Machines not supported, no infraMachineKind or infraMachineSelector found")
 		return nil
 	}
 
@@ -360,15 +366,6 @@ func (r *MachinePoolReconciler) reconcileMachinePoolMachines(ctx context.Context
 
 	if err := r.Client.List(ctx, &infraMachineList, client.InNamespace(mp.Namespace), client.MatchingLabels(infraMachineSelector.MatchLabels)); err != nil {
 		return errors.Wrapf(err, "failed to list infra machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
-	}
-
-	for i := range infraMachineList.Items {
-		infraMachine := &infraMachineList.Items[i]
-		// Add watcher for infraMachine, if there isn't one already.
-		// Ensure we add a watch to the infraMachine, if there isn't one already.
-		if err := r.externalTracker.Watch(log, infraMachine, handler.EnqueueRequestsFromMapFunc(infraMachineToMachinePoolMapper)); err != nil {
-			return errors.Wrapf(err, "failed to add watcher on infraMachine %q", infraMachine.GroupVersionKind())
-		}
 	}
 
 	machineList := &clusterv1.MachineList{}
@@ -438,6 +435,8 @@ func (r *MachinePoolReconciler) deleteDanglingMachines(ctx context.Context, mp *
 
 // createMachinesIfNotExists creates a MachinePool Machine for each infraMachine if it doesn't already exist and sets the owner reference and infraRef.
 func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	infraRefNames := sets.Set[string]{}
 	for _, machine := range machines {
 		infraRef := machine.Spec.InfrastructureRef
@@ -454,12 +453,18 @@ func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, m
 		if err := r.Client.Create(ctx, machine); err != nil {
 			return errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
 		}
+
+		// Add watcher for infraMachine, if there isn't one already.
+		// Ensure we add a watch to the infraMachine, if there isn't one already.
+		if err := r.externalTracker.Watch(log, infraMachine, handler.EnqueueRequestsFromMapFunc(infraMachineToMachinePoolMapper)); err != nil {
+			return errors.Wrapf(err, "failed to add watcher on infraMachine %q", infraMachine.GroupVersionKind())
+		}
 	}
 
 	return nil
 }
 
-// setInfraMachineOwnerRefs creates a MachinePool Machine for each infraMachine if it doesn't already exist and sets the owner reference and infraRef.
+// setInfraMachineOwnerRefs sets the ownerReferences on the each infraMachine to its associated MachinePool Machine.
 func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp *expv1.MachinePool, infraMachines []unstructured.Unstructured) error {
 	machineList := &clusterv1.MachineList{}
 	labels := map[string]string{

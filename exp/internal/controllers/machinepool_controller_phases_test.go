@@ -1374,7 +1374,7 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 				Client: fake.NewClientBuilder().WithObjects(objs...).Build(),
 			}
 
-			err := r.reconcileMachinePoolMachines(ctx, tc.machinepool, infraConfig)
+			err := r.reconcileMachines(ctx, tc.machinepool, infraConfig)
 
 			r.reconcilePhase(tc.machinepool)
 			if tc.expectError {

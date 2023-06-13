@@ -20,8 +20,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-func (d *DockerMachinePool) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (c *DockerMachinePool) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(d).
+		For(c).
 		Complete()
 }
