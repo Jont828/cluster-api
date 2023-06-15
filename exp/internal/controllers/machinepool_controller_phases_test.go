@@ -1448,44 +1448,26 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 			} else {
 				g.Expect(err).To(BeNil())
 
-				g.Eventually(func() bool {
-					machineList := &clusterv1.MachineList{}
-					labels := map[string]string{
-						clusterv1.ClusterNameLabel:     defaultCluster.Name,
-						clusterv1.MachinePoolNameLabel: tc.machinepool.Name,
+				machineList := &clusterv1.MachineList{}
+				labels := map[string]string{
+					clusterv1.ClusterNameLabel:     defaultCluster.Name,
+					clusterv1.MachinePoolNameLabel: tc.machinepool.Name,
+				}
+				err := r.Client.List(ctx, machineList, client.InNamespace(tc.machinepool.Namespace), client.MatchingLabels(labels))
+				g.Expect(err).To(BeNil())
+
+				if tc.supportsMachinePoolMachines {
+					g.Expect(len(machineList.Items)).To(Equal(len(tc.infraMachines)))
+					for i := range machineList.Items {
+						machine := &machineList.Items[i]
+						infraMachine, err := external.Get(ctx, r.Client, &machine.Spec.InfrastructureRef, machine.Namespace)
+						g.Expect(err).To(BeNil())
+
+						g.Expect(util.IsControlledBy(infraMachine, machine)).To(BeTrue())
 					}
-					if err := r.Client.List(ctx, machineList, client.InNamespace(tc.machinepool.Namespace), client.MatchingLabels(labels)); err != nil {
-						t.Log("Failed to list machines with error:", err)
-						return false
-					}
-
-					if tc.supportsMachinePoolMachines {
-						if len(machineList.Items) != len(tc.infraMachines) {
-							t.Logf("Machine list length %d != infraMachine list length %d", len(machineList.Items), len(tc.infraMachines))
-
-							return false
-						}
-
-						for i := range machineList.Items {
-							machine := &machineList.Items[i]
-							infraMachine, err := external.Get(ctx, r.Client, &machine.Spec.InfrastructureRef, machine.Namespace)
-							if err != nil {
-								t.Log("Failed to get infraMachine with error:", err)
-								return false
-							}
-
-							if util.IsControlledBy(infraMachine, machine) {
-								t.Log("InfraMachine is not controlled by machine")
-								return false
-							}
-						}
-					} else if len(machineList.Items) > 0 {
-						t.Logf("MachinePool does not support MachinePool Machines, but found %d machines", len(machineList.Items))
-						return false
-					}
-
-					return true
-				}, timeout).Should(BeTrue())
+				} else {
+					g.Expect(len(machineList.Items)).To(Equal(0))
+				}
 			}
 		})
 	}

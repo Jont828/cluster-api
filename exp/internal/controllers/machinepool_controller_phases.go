@@ -469,7 +469,7 @@ func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, m
 
 // setInfraMachineOwnerRefs sets the ownerReferences on the each infraMachine to its associated MachinePool Machine.
 func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp *expv1.MachinePool, updatedMachines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
-
+	log := ctrl.LoggerFrom(ctx)
 	infraMachineNameToMachine := make(map[string]clusterv1.Machine)
 	for _, machine := range updatedMachines {
 		infraRef := machine.Spec.InfrastructureRef
@@ -483,6 +483,7 @@ func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp
 		for _, ownerRef := range ownerRefs {
 			if ownerRef.Kind == "Machine" && ownerRef.APIVersion == clusterv1.GroupVersion.String() {
 				hasOwnerMachine = true
+				log.V(2).Info("InfraMachine already has ownerRef pointing to Machine, nothing to do", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", ownerRef.Name)
 				break
 			}
 		}
@@ -497,13 +498,9 @@ func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp
 				*metav1.NewControllerRef(&machine, machine.GroupVersionKind()),
 			})
 
-			patchHelper, err := patch.NewHelper(infraMachine, r.Client)
-			if err != nil {
-				return errors.Wrapf(err, "failed to create patch helper for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
-			}
-
-			if err := patchHelper.Patch(ctx, infraMachine); err != nil {
-				return errors.Wrapf(err, "failed to patch infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
+			log.V(2).Info("Setting ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
+			if err := r.Client.Update(ctx, infraMachine); err != nil {
+				return errors.Wrapf(err, "failed to update infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
 			}
 		}
 	}
