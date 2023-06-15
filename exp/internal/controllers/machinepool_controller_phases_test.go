@@ -1172,6 +1172,26 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 		},
 	}
 
+	machine3 := clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine3",
+			Namespace: metav1.NamespaceDefault,
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel:     defaultCluster.Name,
+				clusterv1.MachinePoolNameLabel: "machinepool-test",
+			},
+		},
+		Spec: clusterv1.MachineSpec{
+			ClusterName: clusterName,
+			InfrastructureRef: corev1.ObjectReference{
+				APIVersion: "infrastructure.cluster.x-k8s.io/v1beta1",
+				Kind:       "InfrastructureMachine",
+				Name:       "infra-machine3",
+				Namespace:  metav1.NamespaceDefault,
+			},
+		},
+	}
+
 	testCases := []struct {
 		name                        string
 		bootstrapConfig             map[string]interface{}
@@ -1311,6 +1331,52 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 			},
 			infraMachines: []unstructured.Unstructured{
 				infraMachine1,
+			},
+			expectError:                 false,
+			supportsMachinePoolMachines: true,
+		},
+		{
+			name: "one machine with no infra machine and one infra machine with no machine, should delete one machine and create another",
+			infraConfig: map[string]interface{}{
+				"kind":       "InfrastructureConfig",
+				"apiVersion": "infrastructure.cluster.x-k8s.io/v1beta1",
+				"metadata": map[string]interface{}{
+					"name":      "infra-config1",
+					"namespace": metav1.NamespaceDefault,
+				},
+				"spec": map[string]interface{}{
+					"providerIDList": []interface{}{
+						"test://id-1",
+					},
+				},
+				"status": map[string]interface{}{
+					"ready": true,
+					"addresses": []interface{}{
+						map[string]interface{}{
+							"type":    "InternalIP",
+							"address": "10.0.0.1",
+						},
+						map[string]interface{}{
+							"type":    "InternalIP",
+							"address": "10.0.0.2",
+						},
+					},
+					"infrastructureMachineKind": "InfrastructureMachine",
+					"infrastructureMachineSelector": map[string]interface{}{
+						"matchLabels": map[string]interface{}{
+							clusterv1.ClusterNameLabel:     defaultCluster.Name,
+							clusterv1.MachinePoolNameLabel: defaultMachinePool.Name,
+						},
+					},
+				},
+			},
+			machines: []clusterv1.Machine{
+				machine2,
+				machine3,
+			},
+			infraMachines: []unstructured.Unstructured{
+				infraMachine1,
+				infraMachine2,
 			},
 			expectError:                 false,
 			supportsMachinePoolMachines: true,
