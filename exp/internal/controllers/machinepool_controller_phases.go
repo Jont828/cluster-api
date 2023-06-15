@@ -322,7 +322,7 @@ func (r *MachinePoolReconciler) reconcileInfrastructure(ctx context.Context, clu
 // infrastructure while instead on MachineDeployments, machines are created in CAPI first and then the
 // infrastructure is created accordingly.
 // Note: When supported by the cloud provider implementation of the MachinePool, machines will provide a means to interact
-// with the corresponding infrastructure (e.g. delete a specific machine in case MachineHealthCheck detects it is unhealthy)
+// with the corresponding infrastructure (e.g. delete a specific machine in case MachineHealthCheck detects it is unhealthy).
 func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1.MachinePool, infraMachinePool *unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -352,7 +352,7 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 		return errors.Errorf("only one of infraMachineKind or infraMachineSelector found, both must be present")
 	}
 
-	// If proper MachinePool Machines aren't supported by the InfraMachinePool, do not create any.
+	// If MachinePool Machines aren't supported by the InfraMachinePool, skip reconcile and return early.
 	if noKind && noSelector {
 		log.V(2).Info("MachinePool Machines not supported, no infraMachineKind or infraMachineSelector found")
 		return nil
@@ -363,6 +363,15 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 
 	infraMachineList.SetAPIVersion(infraMachinePool.GetAPIVersion())
 	infraMachineList.SetKind(infraMachineKind)
+
+	sampleInfraMachine := &unstructured.Unstructured{}
+	sampleInfraMachine.SetAPIVersion(infraMachinePool.GetAPIVersion())
+	sampleInfraMachine.SetKind(infraMachineKind)
+	// Add watcher for infraMachine, if there isn't one already.
+	// Ensure we add a watch to the infraMachine, if there isn't one already.
+	if err := r.externalTracker.Watch(log, sampleInfraMachine, handler.EnqueueRequestsFromMapFunc(infraMachineToMachinePoolMapper)); err != nil {
+		return errors.Wrapf(err, "failed to add watcher on infraMachine %q", sampleInfraMachine.GroupVersionKind())
+	}
 
 	if err := r.Client.List(ctx, &infraMachineList, client.InNamespace(mp.Namespace), client.MatchingLabels(infraMachineSelector.MatchLabels)); err != nil {
 		return errors.Wrapf(err, "failed to list infra machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
@@ -387,7 +396,7 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 		return errors.Wrapf(err, "failed to create machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
-	if err := r.setInfraMachineOwnerRefs(ctx, mp, updatedMachines, infraMachineList.Items); err != nil {
+	if err := r.ensureInfraMachineOnwerRefs(ctx, updatedMachines, infraMachineList.Items); err != nil {
 		return errors.Wrapf(err, "failed to create machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
@@ -399,35 +408,33 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 func (r *MachinePoolReconciler) deleteMachinesWithoutInfrastructure(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	log.V(2).Info("Deleting orphaned machines", "machinePool", mp.Name, "namespace", mp.Namespace)
+	log.V(2).Info("Deleting machines without infrastructure", "machinePool", mp.Name, "namespace", mp.Namespace)
 
 	infraMachineNames := sets.Set[string]{}
 	for _, infraMachine := range infraMachines {
 		infraMachineNames.Insert(infraMachine.GetName())
 	}
 
-	for i := range machines {
-		machine := &machines[i]
+	for _, machine := range machines {
 		infraRef := machine.Spec.InfrastructureRef
 
-		// Check this here since external.Get() will complain if the infraRef is empty, i.e. no object kind or apiVersion.
-		// We want to delete since an empty infraRef is invalid as well.
+		// Check this here since external.Get() will fail if the infraRef is empty, i.e. no object kind or apiVersion.
+		// Delete the machine if the infraRef is empty.
 		if (infraRef == corev1.ObjectReference{}) {
-			log.V(2).Info("Machine has an empty infraRef, will delete", "machine", machine.Name, "namespace", machine.Namespace)
-			if err := r.Client.Delete(ctx, machine); err != nil {
+			log.V(4).Info("Machine has an empty infraRef, will delete", "machine", machine.Name, "namespace", machine.Namespace)
+			if err := r.Client.Delete(ctx, &machine); err != nil {
 				return err
 			}
-
 			continue
 		}
 
 		if _, ok := infraMachineNames[infraRef.Name]; !ok {
-			log.V(2).Info("Deleting orphaned machine", "machine", machine.Name, "namespace", machine.Namespace)
-			if err := r.Client.Delete(ctx, machine); err != nil {
+			log.V(4).Info("Deleting machine without infrastructure", "machine", machine.Name, "namespace", machine.Namespace)
+			if err := r.Client.Delete(ctx, &machine); err != nil {
 				return err
 			}
 		} else {
-			log.V(2).Info("Machine is not orphaned, nothing to do", "machine", machine.Name, "namespace", machine.Namespace)
+			log.V(4).Info("Machine has infrastructure, nothing to do", "machine", machine.Name, "namespace", machine.Namespace)
 		}
 	}
 
@@ -438,37 +445,34 @@ func (r *MachinePoolReconciler) deleteMachinesWithoutInfrastructure(ctx context.
 func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) ([]clusterv1.Machine, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	// Construct a set of names of infraMachines that already have a Machine.
 	infraRefNames := sets.Set[string]{}
 	for _, machine := range machines {
 		infraRef := machine.Spec.InfrastructureRef
 		infraRefNames.Insert(infraRef.Name)
 	}
 
-	for i := range infraMachines {
-		infraMachine := &infraMachines[i]
+	for _, infraMachine := range infraMachines {
+		// If infraMachine already has a Machine, skip it.
 		if infraRefNames.Has(infraMachine.GetName()) {
 			continue
 		}
 
-		machine := getNewMachine(mp, infraMachine)
+		// Otherwise create a new Machine for the infraMachine.
+		log.V(4).Info("Creating new Machine for infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace())
+		machine := getNewMachine(mp, &infraMachine)
 		if err := r.Client.Create(ctx, machine); err != nil {
 			return nil, errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
 		}
 
 		machines = append(machines, *machine)
-
-		// Add watcher for infraMachine, if there isn't one already.
-		// Ensure we add a watch to the infraMachine, if there isn't one already.
-		if err := r.externalTracker.Watch(log, infraMachine, handler.EnqueueRequestsFromMapFunc(infraMachineToMachinePoolMapper)); err != nil {
-			return nil, errors.Wrapf(err, "failed to add watcher on infraMachine %q", infraMachine.GroupVersionKind())
-		}
 	}
 
 	return machines, nil
 }
 
-// setInfraMachineOwnerRefs sets the ownerReferences on the each infraMachine to its associated MachinePool Machine.
-func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp *expv1.MachinePool, updatedMachines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
+// ensureInfraMachineOnwerRefs sets the ownerReferences on the each infraMachine to its associated MachinePool Machine if it hasn't already been done.
+func (r *MachinePoolReconciler) ensureInfraMachineOnwerRefs(ctx context.Context, updatedMachines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 	infraMachineNameToMachine := make(map[string]clusterv1.Machine)
 	for _, machine := range updatedMachines {
@@ -479,26 +483,16 @@ func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp
 	for i := range infraMachines {
 		infraMachine := &infraMachines[i]
 		ownerRefs := infraMachine.GetOwnerReferences()
-		hasOwnerMachine := false
-		for _, ownerRef := range ownerRefs {
-			if ownerRef.Kind == "Machine" && ownerRef.APIVersion == clusterv1.GroupVersion.String() {
-				hasOwnerMachine = true
-				log.V(2).Info("InfraMachine already has ownerRef pointing to Machine, nothing to do", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", ownerRef.Name)
-				break
-			}
+
+		machine, ok := infraMachineNameToMachine[infraMachine.GetName()]
+		if !ok {
+			return errors.Errorf("failed to patch ownerRef for infraMachine %q because no Machine has an infraRef pointing to it", infraMachine.GetName())
 		}
-
-		if !hasOwnerMachine {
-			machine, ok := infraMachineNameToMachine[infraMachine.GetName()]
-			if !ok {
-				return errors.Errorf("failed to patch ownerRef for infraMachine %q because no Machine has an infraRef pointing to it", infraMachine.GetName())
-			}
-			// Set the owner reference on the infraMachine to the Machine since the infraMachine is created and owned by the infraMachinePool.
-			infraMachine.SetOwnerReferences([]metav1.OwnerReference{
-				*metav1.NewControllerRef(&machine, machine.GroupVersionKind()),
-			})
-
+		machineRef := metav1.NewControllerRef(&machine, machine.GroupVersionKind())
+		if !util.HasOwnerRef(ownerRefs, *machineRef) {
 			log.V(2).Info("Setting ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
+			ownerRefs = util.EnsureOwnerRef(ownerRefs, *machineRef)
+			infraMachine.SetOwnerReferences(ownerRefs)
 			if err := r.Client.Update(ctx, infraMachine); err != nil {
 				return errors.Wrapf(err, "failed to update infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
 			}
@@ -520,9 +514,6 @@ func getNewMachine(mp *expv1.MachinePool, infraMachine *unstructured.Unstructure
 	}
 
 	annotations := mp.Spec.Template.Annotations
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
 
 	machine := &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{

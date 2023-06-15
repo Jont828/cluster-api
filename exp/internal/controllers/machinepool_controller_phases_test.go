@@ -1423,9 +1423,7 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 			}
 
 			objs := []client.Object{defaultCluster.DeepCopy()}
-
 			infraConfig := &unstructured.Unstructured{Object: tc.infraConfig}
-
 			objs = append(objs, tc.machinepool, infraConfig.DeepCopy())
 
 			for _, infraMachine := range tc.infraMachines {
@@ -1457,7 +1455,7 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 				g.Expect(err).To(BeNil())
 
 				if tc.supportsMachinePoolMachines {
-					g.Expect(len(machineList.Items)).To(Equal(len(tc.infraMachines)))
+					g.Expect(machineList.Items).To(HaveLen(len(tc.infraMachines)))
 					for i := range machineList.Items {
 						machine := &machineList.Items[i]
 						infraMachine, err := external.Get(ctx, r.Client, &machine.Spec.InfrastructureRef, machine.Namespace)
@@ -1466,7 +1464,7 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 						g.Expect(util.IsControlledBy(infraMachine, machine)).To(BeTrue())
 					}
 				} else {
-					g.Expect(len(machineList.Items)).To(Equal(0))
+					g.Expect(machineList.Items).To(BeEmpty())
 				}
 			}
 		})
