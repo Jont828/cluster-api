@@ -382,11 +382,12 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 		return errors.Wrapf(err, "failed to clean up orphan machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
-	if err := r.createMachinesIfNotExists(ctx, mp, machineList.Items, infraMachineList.Items); err != nil {
+	updatedMachines, err := r.createMachinesIfNotExists(ctx, mp, machineList.Items, infraMachineList.Items)
+	if err != nil {
 		return errors.Wrapf(err, "failed to create machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
-	if err := r.setInfraMachineOwnerRefs(ctx, mp, infraMachineList.Items); err != nil {
+	if err := r.setInfraMachineOwnerRefs(ctx, mp, updatedMachines, infraMachineList.Items); err != nil {
 		return errors.Wrapf(err, "failed to create machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
@@ -434,7 +435,7 @@ func (r *MachinePoolReconciler) deleteMachinesWithoutInfrastructure(ctx context.
 }
 
 // createMachinesIfNotExists creates a MachinePool Machine for each infraMachine if it doesn't already exist and sets the owner reference and infraRef.
-func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
+func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) ([]clusterv1.Machine, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	infraRefNames := sets.Set[string]{}
@@ -451,33 +452,26 @@ func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, m
 
 		machine := getNewMachine(mp, infraMachine)
 		if err := r.Client.Create(ctx, machine); err != nil {
-			return errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
+			return nil, errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace())
 		}
+
+		machines = append(machines, *machine)
 
 		// Add watcher for infraMachine, if there isn't one already.
 		// Ensure we add a watch to the infraMachine, if there isn't one already.
 		if err := r.externalTracker.Watch(log, infraMachine, handler.EnqueueRequestsFromMapFunc(infraMachineToMachinePoolMapper)); err != nil {
-			return errors.Wrapf(err, "failed to add watcher on infraMachine %q", infraMachine.GroupVersionKind())
+			return nil, errors.Wrapf(err, "failed to add watcher on infraMachine %q", infraMachine.GroupVersionKind())
 		}
 	}
 
-	return nil
+	return machines, nil
 }
 
 // setInfraMachineOwnerRefs sets the ownerReferences on the each infraMachine to its associated MachinePool Machine.
-func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp *expv1.MachinePool, infraMachines []unstructured.Unstructured) error {
-	machineList := &clusterv1.MachineList{}
-	labels := map[string]string{
-		clusterv1.MachinePoolNameLabel: mp.Name,
-		clusterv1.ClusterNameLabel:     mp.Spec.ClusterName,
-	}
-
-	if err := r.Client.List(ctx, machineList, client.InNamespace(mp.Namespace), client.MatchingLabels(labels)); err != nil {
-		return err
-	}
+func (r *MachinePoolReconciler) setInfraMachineOwnerRefs(ctx context.Context, mp *expv1.MachinePool, updatedMachines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
 
 	infraMachineNameToMachine := make(map[string]clusterv1.Machine)
-	for _, machine := range machineList.Items {
+	for _, machine := range updatedMachines {
 		infraRef := machine.Spec.InfrastructureRef
 		infraMachineNameToMachine[infraRef.Name] = machine
 	}
