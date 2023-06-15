@@ -378,7 +378,7 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 		return err
 	}
 
-	if err := r.deleteDanglingMachines(ctx, mp, machineList.Items); err != nil {
+	if err := r.deleteMachinesWithoutInfrastructure(ctx, mp, machineList.Items, infraMachineList.Items); err != nil {
 		return errors.Wrapf(err, "failed to clean up orphan machines for MachinePool %q in namespace %q", mp.Name, mp.Namespace)
 	}
 
@@ -393,12 +393,17 @@ func (r *MachinePoolReconciler) reconcileMachines(ctx context.Context, mp *expv1
 	return nil
 }
 
-// deleteDanglingMachines deletes all MachinePool Machines with an infraRef pointing to an infraMachine that no longer exists.
+// deleteMachinesWithoutInfrastructure deletes all MachinePool Machines with an infraRef pointing to an infraMachine that no longer exists.
 // This allows us to clean up Machines when the MachinePool is scaled down.
-func (r *MachinePoolReconciler) deleteDanglingMachines(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine) error {
+func (r *MachinePoolReconciler) deleteMachinesWithoutInfrastructure(ctx context.Context, mp *expv1.MachinePool, machines []clusterv1.Machine, infraMachines []unstructured.Unstructured) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(2).Info("Deleting orphaned machines", "machinePool", mp.Name, "namespace", mp.Namespace)
+
+	infraMachineNames := sets.Set[string]{}
+	for _, infraMachine := range infraMachines {
+		infraMachineNames.Insert(infraMachine.GetName())
+	}
 
 	for i := range machines {
 		machine := &machines[i]
@@ -415,12 +420,7 @@ func (r *MachinePoolReconciler) deleteDanglingMachines(ctx context.Context, mp *
 			continue
 		}
 
-		_, err := external.Get(ctx, r.Client, &infraRef, mp.Namespace)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				log.Error(err, "unexpected error while trying to get infra machine, will delete anyway", "machine", machine.Name, "namespace", machine.Namespace)
-			}
-
+		if _, ok := infraMachineNames[infraRef.Name]; !ok {
 			log.V(2).Info("Deleting orphaned machine", "machine", machine.Name, "namespace", machine.Namespace)
 			if err := r.Client.Delete(ctx, machine); err != nil {
 				return err
