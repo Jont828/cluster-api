@@ -268,7 +268,7 @@ func (f *FakeCluster) Objs() []client.Object {
 		if f.controlPlane == nil && i == 0 {
 			generateCerts = true
 		}
-		objs = append(objs, machine.Objs(cluster, generateCerts, nil, nil)...)
+		objs = append(objs, machine.Objs(cluster, generateCerts, nil, nil, nil)...)
 	}
 
 	// Ensure all the objects gets UID.
@@ -402,14 +402,15 @@ func (f *FakeControlPlane) Objs(cluster *clusterv1.Cluster) []client.Object {
 
 	// Adds the objects for the machines controlled by the controlPlane
 	for _, machine := range f.machines {
-		objs = append(objs, machine.Objs(cluster, false, nil, controlPlane)...)
+		objs = append(objs, machine.Objs(cluster, false, nil, nil, controlPlane)...)
 	}
 
 	return objs
 }
 
 type FakeMachinePool struct {
-	name string
+	name     string
+	machines []*FakeMachine
 }
 
 // NewFakeMachinePool return a FakeMachinePool that can generate a MachinePool object, all its own ancillary objects:
@@ -419,6 +420,11 @@ func NewFakeMachinePool(name string) *FakeMachinePool {
 	return &FakeMachinePool{
 		name: name,
 	}
+}
+
+func (f *FakeMachinePool) WithMachines(fakeMachine ...*FakeMachine) *FakeMachinePool {
+	f.machines = append(f.machines, fakeMachine...)
+	return f
 }
 
 func (f *FakeMachinePool) Objs(cluster *clusterv1.Cluster) []client.Object {
@@ -512,6 +518,10 @@ func (f *FakeMachinePool) Objs(cluster *clusterv1.Cluster) []client.Object {
 		machinePool,
 		machinePoolInfrastructure,
 		machinePoolBootstrap,
+	}
+
+	for _, machine := range f.machines {
+		objs = append(objs, machine.Objs(cluster, false, nil, machinePool, nil)...)
 	}
 
 	return objs
@@ -788,7 +798,7 @@ func (f *FakeMachineSet) Objs(cluster *clusterv1.Cluster, machineDeployment *clu
 
 	// Adds the objects for the machines controlled by the machineSet
 	for _, machine := range f.machines {
-		objs = append(objs, machine.Objs(cluster, false, machineSet, nil)...)
+		objs = append(objs, machine.Objs(cluster, false, machineSet, nil, nil)...)
 	}
 
 	return objs
@@ -808,7 +818,7 @@ func NewFakeMachine(name string) *FakeMachine {
 	}
 }
 
-func (f *FakeMachine) Objs(cluster *clusterv1.Cluster, generateCerts bool, machineSet *clusterv1.MachineSet, controlPlane *fakecontrolplane.GenericControlPlane) []client.Object {
+func (f *FakeMachine) Objs(cluster *clusterv1.Cluster, generateCerts bool, machineSet *clusterv1.MachineSet, machinePool *expv1.MachinePool, controlPlane *fakecontrolplane.GenericControlPlane) []client.Object {
 	machineInfrastructure := &fakeinfrastructure.GenericInfrastructureMachine{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: fakeinfrastructure.GroupVersion.String(),
@@ -880,15 +890,6 @@ func (f *FakeMachine) Objs(cluster *clusterv1.Cluster, generateCerts bool, machi
 				Name:       machineInfrastructure.Name,
 				Namespace:  cluster.Namespace,
 			},
-			Bootstrap: clusterv1.Bootstrap{
-				ConfigRef: &corev1.ObjectReference{
-					APIVersion: machineBootstrap.APIVersion,
-					Kind:       machineBootstrap.Kind,
-					Name:       machineBootstrap.Name,
-					Namespace:  cluster.Namespace,
-				},
-				DataSecretName: &bootstrapDataSecretName,
-			},
 			ClusterName: cluster.Name,
 		},
 	}
@@ -907,6 +908,11 @@ func (f *FakeMachine) Objs(cluster *clusterv1.Cluster, generateCerts bool, machi
 		machine.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(controlPlane, controlPlane.GroupVersionKind())})
 		// Sets the MachineControlPlane Label
 		machine.Labels[clusterv1.MachineControlPlaneLabel] = ""
+	case machinePool != nil:
+		// If this machine belong to a machinePool, it is controlled by it / ownership set by the machinePool controller -- ** NOT RECONCILED ?? **
+		machine.SetOwnerReferences([]metav1.OwnerReference{*metav1.NewControllerRef(machinePool, machinePool.GroupVersionKind())})
+		// Sets the MachineControlPlane Label
+		machine.Labels[clusterv1.MachinePoolNameLabel] = machinePool.Name
 	default:
 		// If this machine does not belong to a machineSet or to a control plane, it is owned by the cluster / ownership set by the machine controller -- RECONCILED
 		machine.SetOwnerReferences([]metav1.OwnerReference{{
@@ -948,23 +954,34 @@ func (f *FakeMachine) Objs(cluster *clusterv1.Cluster, generateCerts bool, machi
 		clusterv1.ClusterNameLabel: machine.Spec.ClusterName,
 	})
 
-	machineBootstrap.SetOwnerReferences([]metav1.OwnerReference{
-		{
-			APIVersion: machine.APIVersion,
-			Kind:       machine.Kind,
-			Name:       machine.Name,
-			UID:        machine.UID,
-		},
-	})
-	machineBootstrap.SetLabels(map[string]string{
-		clusterv1.ClusterNameLabel: machine.Spec.ClusterName,
-	})
-
 	objs := []client.Object{
 		machine,
 		machineInfrastructure,
-		machineBootstrap,
-		bootstrapDataSecret,
+	}
+
+	if machinePool == nil {
+		machine.Spec.Bootstrap = clusterv1.Bootstrap{
+			ConfigRef: &corev1.ObjectReference{
+				APIVersion: machineBootstrap.APIVersion,
+				Kind:       machineBootstrap.Kind,
+				Name:       machineBootstrap.Name,
+				Namespace:  cluster.Namespace,
+			},
+			DataSecretName: &bootstrapDataSecretName,
+		}
+		machineBootstrap.SetOwnerReferences([]metav1.OwnerReference{
+			{
+				APIVersion: machine.APIVersion,
+				Kind:       machine.Kind,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			},
+		})
+		machineBootstrap.SetLabels(map[string]string{
+			clusterv1.ClusterNameLabel: machine.Spec.ClusterName,
+		})
+
+		additionalObjs = append(additionalObjs, machineBootstrap, bootstrapDataSecret)
 	}
 
 	objs = append(objs, additionalObjs...)
