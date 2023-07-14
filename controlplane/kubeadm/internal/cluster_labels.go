@@ -19,7 +19,7 @@ package internal
 import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
-	capilabels "sigs.k8s.io/cluster-api/internal/labels"
+	capilabels "sigs.k8s.io/cluster-api/util/labels"
 )
 
 // ControlPlaneMachineLabelsForCluster returns a set of labels to add to a control plane machine for this specific cluster.
