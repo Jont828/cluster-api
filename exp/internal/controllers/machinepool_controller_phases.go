@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/cluster-api/controllers/external"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
+	utilexp "sigs.k8s.io/cluster-api/exp/util"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -408,7 +409,7 @@ func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, m
 			continue
 		}
 		// Otherwise create a new Machine for the infraMachine.
-		log.Info("Creating new Machine for infraMachine", infraMachine.GroupVersionKind().Kind, klog.KObj(infraMachine))
+		log.V(2).Info("Creating new Machine for infraMachine", infraMachine.GroupVersionKind().Kind, klog.KObj(infraMachine))
 		machine := getNewMachine(mp, infraMachine)
 		if err := r.Client.Create(ctx, machine); err != nil {
 			errs = append(errs, errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace()))
@@ -444,6 +445,9 @@ func (r *MachinePoolReconciler) ensureInfraMachineOnwerRefs(ctx context.Context,
 		if !ok {
 			return errors.Errorf("failed to patch ownerRef for infraMachine %q because no Machine has an infraRef pointing to it", infraMachine.GetName())
 		}
+
+		// GroupVersionKind is only set on Machines returned by a client call, not on Machine structs we've created earlier and appened to updatedMachines.
+		machine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
 		machineRef := metav1.NewControllerRef(&machine, machine.GroupVersionKind())
 		if !util.HasOwnerRef(ownerRefs, *machineRef) {
 			log.V(2).Info("Setting ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
@@ -459,6 +463,8 @@ func (r *MachinePoolReconciler) ensureInfraMachineOnwerRefs(ctx context.Context,
 			if err := patchHelper.Patch(ctx, infraMachine); err != nil {
 				return errors.Wrapf(err, "failed to patch %s", klog.KObj(infraMachine))
 			}
+
+			log.V(4).Info("Successfully set ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
 		}
 	}
 
@@ -514,29 +520,22 @@ func getNewMachine(mp *expv1.MachinePool, infraMachine *unstructured.Unstructure
 func (r *MachinePoolReconciler) infraMachineToMachinePoolMapper(ctx context.Context, o client.Object) []ctrl.Request {
 	log := ctrl.LoggerFrom(ctx)
 
-	machinePoolList := &expv1.MachinePoolList{}
 	labels := o.GetLabels()
-	selector := map[string]string{}
-	if clusterName, ok := labels[clusterv1.ClusterNameLabel]; ok {
-		selector = map[string]string{clusterv1.ClusterNameLabel: clusterName}
-	}
-
-	if poolNameHash, ok := labels[clusterv1.MachinePoolNameLabel]; ok {
-		if err := r.Client.List(ctx, machinePoolList, client.InNamespace(o.GetNamespace()), client.MatchingLabels(selector)); err != nil {
-			log.Error(err, "failed to get MachinePool for InfraMachine")
+	_, machinePoolOwned := labels[clusterv1.MachinePoolNameLabel]
+	if machinePoolOwned {
+		machinePool, err := utilexp.GetMachinePoolByLabels(ctx, r.Client, o.GetNamespace(), labels)
+		if err != nil {
+			log.Error(err, "failed to get MachinePool for InfraMachine", "infraMachine", klog.KObj(o), "labels", labels)
 			return nil
 		}
-
-		for _, mp := range machinePoolList.Items {
-			if format.MustFormatValue(mp.Name) == poolNameHash {
-				return []ctrl.Request{
-					{
-						NamespacedName: client.ObjectKey{
-							Namespace: mp.Namespace,
-							Name:      mp.Name,
-						},
+		if machinePool != nil {
+			return []ctrl.Request{
+				{
+					NamespacedName: client.ObjectKey{
+						Namespace: machinePool.Namespace,
+						Name:      machinePool.Name,
 					},
-				}
+				},
 			}
 		}
 	}

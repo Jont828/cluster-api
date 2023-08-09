@@ -38,6 +38,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/remote"
+	utilexp "sigs.k8s.io/cluster-api/exp/util"
 	"sigs.k8s.io/cluster-api/test/infrastructure/container"
 	infrav1 "sigs.k8s.io/cluster-api/test/infrastructure/docker/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/infrastructure/docker/internal/docker"
@@ -151,8 +152,12 @@ func (r *DockerMachineReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	if _, hasDeleteAnnotation := machine.Annotations[clusterv1.DeleteMachineAnnotation]; hasDeleteAnnotation {
+		dockerMachine.Annotations[clusterv1.DeleteMachineAnnotation] = machine.Annotations[clusterv1.DeleteMachineAnnotation]
+	}
+
 	// Create a helper for managing the docker container hosting the machine.
-	externalMachine, err := docker.NewMachine(ctx, cluster, machine.Name, nil)
+	externalMachine, err := docker.NewMachine(ctx, cluster, dockerMachine.Name, nil)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
@@ -215,6 +220,29 @@ func (r *DockerMachineReconciler) reconcileNormal(ctx context.Context, cluster *
 		return ctrl.Result{}, nil
 	}
 
+	var dataSecretName *string
+	var version *string
+
+	// Be sure to include the MachinePool label in the DockerMachine along with the selector labels.
+	labels := dockerMachine.GetLabels()
+	_, machinePoolOwned := labels[clusterv1.MachinePoolNameLabel]
+	if machinePoolOwned {
+		machinePool, err := utilexp.GetMachinePoolByLabels(ctx, r.Client, dockerMachine.GetNamespace(), labels)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to get machine pool for DockerMachine %s/%s", dockerMachine.GetNamespace(), dockerMachine.GetName())
+		}
+		if machinePool == nil {
+			log.V(4).Info("No MachinePool matching labels found, returning without error")
+			return ctrl.Result{}, nil
+		}
+
+		dataSecretName = machinePool.Spec.Template.Spec.Bootstrap.DataSecretName
+		version = machinePool.Spec.Template.Spec.Version
+	} else {
+		dataSecretName = machine.Spec.Bootstrap.DataSecretName
+		version = machine.Spec.Version
+	}
+
 	// if the machine is already provisioned, return
 	if dockerMachine.Spec.ProviderID != nil {
 		// ensure ready state is set.
@@ -234,7 +262,7 @@ func (r *DockerMachineReconciler) reconcileNormal(ctx context.Context, cluster *
 	}
 
 	// Make sure bootstrap data is available and populated.
-	if machine.Spec.Bootstrap.DataSecretName == nil {
+	if dataSecretName == nil {
 		if !util.IsControlPlaneMachine(machine) && !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
 			log.Info("Waiting for the control plane to be initialized")
 			conditions.MarkFalse(dockerMachine, infrav1.ContainerProvisionedCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
@@ -312,7 +340,10 @@ func (r *DockerMachineReconciler) reconcileNormal(ctx context.Context, cluster *
 		// but bootstrapped is never set on the object. We only try to bootstrap if the machine
 		// is not already bootstrapped.
 		if err := externalMachine.CheckForBootstrapSuccess(timeoutCtx, false); err != nil {
-			bootstrapData, format, err := r.getBootstrapData(timeoutCtx, machine)
+			if dataSecretName == nil {
+				return ctrl.Result{}, errors.Errorf("error retrieving bootstrap data: linked bootstrap.dataSecretName is nil")
+			}
+			bootstrapData, format, err := r.getBootstrapData(timeoutCtx, dockerMachine.Namespace, *dataSecretName)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -340,10 +371,11 @@ func (r *DockerMachineReconciler) reconcileNormal(ctx context.Context, cluster *
 			}()
 
 			// Run the bootstrap script. Simulates cloud-init/Ignition.
-			if err := externalMachine.ExecBootstrap(timeoutCtx, bootstrapData, format, machine.Spec.Version, dockerMachine.Spec.CustomImage); err != nil {
+			if err := externalMachine.ExecBootstrap(timeoutCtx, bootstrapData, format, version, dockerMachine.Spec.CustomImage); err != nil {
 				conditions.MarkFalse(dockerMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "Repeating bootstrap")
 				return ctrl.Result{}, errors.Wrap(err, "failed to exec DockerMachine bootstrap")
 			}
+
 			// Check for bootstrap success
 			if err := externalMachine.CheckForBootstrapSuccess(timeoutCtx, true); err != nil {
 				conditions.MarkFalse(dockerMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "Repeating bootstrap")
@@ -495,15 +527,11 @@ func (r *DockerMachineReconciler) DockerClusterToDockerMachines(ctx context.Cont
 	return result
 }
 
-func (r *DockerMachineReconciler) getBootstrapData(ctx context.Context, machine *clusterv1.Machine) (string, bootstrapv1.Format, error) {
-	if machine.Spec.Bootstrap.DataSecretName == nil {
-		return "", "", errors.New("error retrieving bootstrap data: linked Machine's bootstrap.dataSecretName is nil")
-	}
-
+func (r *DockerMachineReconciler) getBootstrapData(ctx context.Context, namespace string, dataSecretName string) (string, bootstrapv1.Format, error) {
 	s := &corev1.Secret{}
-	key := client.ObjectKey{Namespace: machine.GetNamespace(), Name: *machine.Spec.Bootstrap.DataSecretName}
+	key := client.ObjectKey{Namespace: namespace, Name: dataSecretName}
 	if err := r.Client.Get(ctx, key, s); err != nil {
-		return "", "", errors.Wrapf(err, "failed to retrieve bootstrap data secret for DockerMachine %s", klog.KObj(machine))
+		return "", "", errors.Wrapf(err, "failed to retrieve bootstrap data secret %s", dataSecretName)
 	}
 
 	value, ok := s.Data["value"]

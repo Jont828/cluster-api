@@ -82,13 +82,28 @@ func (dst *DockerClusterList) ConvertFrom(srcRaw conversion.Hub) error {
 func (src *DockerMachine) ConvertTo(dstRaw conversion.Hub) error {
 	dst := dstRaw.(*infrav1.DockerMachine)
 
-	return Convert_v1alpha3_DockerMachine_To_v1beta1_DockerMachine(src, dst, nil)
+	if err := Convert_v1alpha3_DockerMachine_To_v1beta1_DockerMachine(src, dst, nil); err != nil {
+		return err
+	}
+
+	// Manually restore data.
+	restored := &infrav1.DockerMachine{}
+	if ok, err := utilconversion.UnmarshalData(src, restored); err != nil || !ok {
+		return err
+	}
+
+	return nil
 }
 
 func (dst *DockerMachine) ConvertFrom(srcRaw conversion.Hub) error {
 	src := srcRaw.(*infrav1.DockerMachine)
 
-	return Convert_v1beta1_DockerMachine_To_v1alpha3_DockerMachine(src, dst, nil)
+	if err := Convert_v1beta1_DockerMachine_To_v1alpha3_DockerMachine(src, dst, nil); err != nil {
+		return err
+	}
+
+	// Preserve Hub data on down-conversion except for metadata
+	return utilconversion.MarshalData(src, dst)
 }
 
 func (src *DockerMachineList) ConvertTo(dstRaw conversion.Hub) error {
