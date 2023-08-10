@@ -464,7 +464,7 @@ func (r *MachinePoolReconciler) ensureInfraMachineOnwerRefs(ctx context.Context,
 				return errors.Wrapf(err, "failed to patch %s", klog.KObj(infraMachine))
 			}
 
-			log.V(4).Info("Successfully set ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
+			log.V(2).Info("Successfully set ownerRef on infraMachine", "infraMachine", infraMachine.GetName(), "namespace", infraMachine.GetNamespace(), "machine", machine.GetName())
 		}
 	}
 
@@ -494,6 +494,8 @@ func getNewMachine(mp *expv1.MachinePool, infraMachine *unstructured.Unstructure
 			InfrastructureRef: infraRef,
 		},
 	}
+
+	machine.SetGroupVersionKind(clusterv1.GroupVersion.WithKind("Machine"))
 
 	for k, v := range mp.Spec.Template.Annotations {
 		machine.Annotations[k] = v

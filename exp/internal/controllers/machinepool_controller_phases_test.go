@@ -1345,7 +1345,6 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 						machine := &machineList.Items[i]
 						infraMachine, err := external.Get(ctx, r.Client, &machine.Spec.InfrastructureRef, machine.Namespace)
 						g.Expect(err).ToNot(HaveOccurred())
-
 						g.Expect(util.IsControlledBy(infraMachine, machine)).To(BeTrue())
 					}
 				} else {
