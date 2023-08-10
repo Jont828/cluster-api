@@ -1133,6 +1133,10 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 	}
 
 	machine1 := clusterv1.Machine{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "cluster.x-k8s.io/v1beta1",
+			Kind:       "Machine",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "machine1",
 			Namespace: metav1.NamespaceDefault,
@@ -1153,6 +1157,10 @@ func TestReconcileMachinePoolMachines(t *testing.T) {
 	}
 
 	machine2 := clusterv1.Machine{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "cluster.x-k8s.io/v1beta1",
+			Kind:       "Machine",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "machine2",
 			Namespace: metav1.NamespaceDefault,

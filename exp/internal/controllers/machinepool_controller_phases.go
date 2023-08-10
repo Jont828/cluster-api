@@ -409,7 +409,7 @@ func (r *MachinePoolReconciler) createMachinesIfNotExists(ctx context.Context, m
 			continue
 		}
 		// Otherwise create a new Machine for the infraMachine.
-		log.V(2).Info("Creating new Machine for infraMachine", infraMachine.GroupVersionKind().Kind, klog.KObj(infraMachine))
+		log.Info("Creating new Machine for infraMachine", infraMachine.GroupVersionKind().Kind, klog.KObj(infraMachine))
 		machine := getNewMachine(mp, infraMachine)
 		if err := r.Client.Create(ctx, machine); err != nil {
 			errs = append(errs, errors.Wrapf(err, "failed to create new Machine for infraMachine %q in namespace %q", infraMachine.GetName(), infraMachine.GetNamespace()))
